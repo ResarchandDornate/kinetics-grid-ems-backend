@@ -1,0 +1,46 @@
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: ems
+      POSTGRES_PASSWORD: ems_password
+      POSTGRES_DB: ems
+    ports:
+      - "5432:5432"
+    volumes:
+      - ems_pgdata:/var/lib/postgresql/data
+      # Schema is applied automatically on first boot of an empty volume.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ems -d ems"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Emulates the i.MX93 gateway (REST + SSE) so you can build before the
+  # real hardware is on the network. Swap GATEWAY_*_URL to the real IP later.
+  mock-gateway:
+    build: .
+    command: uvicorn mock_gateway.mock:app --host 0.0.0.0 --port 9000
+    ports:
+      - "9000:9000"
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080
+    env_file: .env
+    environment:
+      # Override the .env localhost values for the docker network.
+      DATABASE_URL: postgresql://ems:ems_password@db:5432/ems
+      GATEWAY_BASE_URL: http://mock-gateway:9000
+      GATEWAY_LOG_BASE_URL: http://mock-gateway:9000
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-gateway:
+        condition: service_started
+
+volumes:
+  ems_pgdata:
