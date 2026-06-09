@@ -32,8 +32,8 @@ services:
     environment:
       # Override the .env localhost values for the docker network.
       DATABASE_URL: postgresql://ems:ems_password@db:5432/ems
-      GATEWAY_BASE_URL: http://mock-gateway:9000
-      GATEWAY_LOG_BASE_URL: http://mock-gateway:9000
+      GATEWAY_BASE_URL: https://ems-api.unityess.cloud
+      GATEWAY_LOG_BASE_URL: https://ems-api.unityess.cloud
     ports:
       - "8080:8080"
     depends_on:

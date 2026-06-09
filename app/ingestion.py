@@ -33,8 +33,11 @@ from .gateway_client import GatewayClient
 
 log = logging.getLogger("ingestion")
 
-# Nested/structural keys we never expand into the time-series table.
-_SKIP_KEYS = {"storage_logger", "raw_telemetry"}
+# Envelope / structural / meta keys we never expand into the time-series table.
+_SKIP_KEYS = {
+    "storage_logger", "raw_telemetry", "data", "assets", "type", "mode",
+    "gateway_id", "asset_id", "asset_type", "asset_key", "timestamp",
+}
 
 
 def _parse_ts(value: Any) -> datetime:
@@ -141,34 +144,54 @@ class Ingestor:
             await self._handle_packet(packet)
 
     async def _handle_packet(self, packet: dict) -> None:
-        """A packet is the combined latest telemetry for all assets.
+        """Normalise the many packet shapes into (asset_id, asset_obj) pairs.
 
-        Accepts either {"assets": {asset_id: {...}}} or
-        {"assets": [{"asset_id": ..., ...}]} or a single-asset packet.
+        Real i.MX93 SSE event:
+            {"asset_id":"chiller_1", "data":{...}, "status":"ok",
+             "assets":{"chiller":{"asset_id":"chiller_1","data":{...}}}}
+          -> the nested `assets` dict is keyed by the SHORT name ("chiller"),
+             but each object carries the real "asset_id" ("chiller_1"). We use
+             the inner asset_id, never the dict key (that was the FK crash).
+        Also accepts the mock's {"assets":{asset_id:{"telemetry":{...}}}} and a
+        bare single-asset packet.
         """
-        assets = packet.get("assets", packet)
-        if isinstance(assets, dict) and "asset_id" in assets:
-            assets = {assets["asset_id"]: assets}
-        if isinstance(assets, list):
-            assets = {a.get("asset_id"): a for a in assets if a.get("asset_id")}
-        if not isinstance(assets, dict):
-            return
+        pairs: list[tuple[str, dict]] = []
+        assets = packet.get("assets")
+        if isinstance(assets, dict) and assets:
+            for key, obj in assets.items():
+                if isinstance(obj, dict):
+                    pairs.append((obj.get("asset_id") or key, obj))
+        elif isinstance(assets, list) and assets:
+            for obj in assets:
+                if isinstance(obj, dict) and obj.get("asset_id"):
+                    pairs.append((obj["asset_id"], obj))
+        elif packet.get("asset_id"):
+            pairs.append((packet["asset_id"], packet))
 
-        for asset_id, data in assets.items():
-            if not isinstance(data, dict):
-                continue
-            await self._handle_asset(asset_id, data)
+        for asset_id, obj in pairs:
+            if asset_id:
+                await self._handle_asset(asset_id, obj)
 
     async def _handle_asset(self, asset_id: str, data: dict) -> None:
         asset_type = data.get("asset_type")
-        telemetry = data.get("telemetry", data)
-        ts = _parse_ts(telemetry.get("timestamp") or data.get("timestamp"))
-        online = data.get("online")
+        # Real gateway puts telemetry under "data"; mock uses "telemetry" or
+        # spreads fields at the top level.
+        telemetry = data.get("data")
+        if not isinstance(telemetry, dict) or not telemetry:
+            telemetry = data.get("telemetry")
+        if not isinstance(telemetry, dict):
+            telemetry = data
+        ts = _parse_ts(data.get("timestamp") or telemetry.get("timestamp"))
         comm = (
             data.get("communication_status")
             or telemetry.get("communication_status")
             or telemetry.get("comm_status")
+            or data.get("status")
         )
+        # Real SSE has no boolean "online"; derive it from comm/status.
+        online = data.get("online")
+        if online is None and comm is not None:
+            online = str(comm).lower() in ("online", "ok", "connected")
         error_text = data.get("error") or telemetry.get("error") or telemetry.get("last_error")
 
         # 1) Always refresh the latest-state cache (single-row upsert, fast).
