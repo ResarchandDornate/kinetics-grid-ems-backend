@@ -1,0 +1,20 @@
+name: Deploy Kinetic EMS Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-kinetic-ems
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: Ornate-solar-resarchd/portals-infra/.github/workflows/_deploy-template.yml@main
+    with:
+      portal:       kinetic-ems
+      portal_dir:   kinetics-grid-ems-backend
+      services:     "kinetic-ems-api kinetic-ems-mock-gateway"
+      health_url:   "https://kinetic.unityess.cloud/api/health"
+      runner_label: kinetic-ems
