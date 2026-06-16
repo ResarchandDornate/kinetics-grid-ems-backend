@@ -35,9 +35,13 @@ log = logging.getLogger("ingestion")
 
 # Envelope / structural / meta keys we never expand into the time-series table.
 _SKIP_KEYS = {
-    "storage_logger", "raw_telemetry", "data", "assets", "type", "mode",
-    "gateway_id", "asset_id", "asset_type", "asset_key", "timestamp",
+    "storage_logger", "raw_telemetry", "raw", "data", "assets", "pcs", "bms",
+    "chiller", "type", "mode", "gateway_id", "asset_id", "asset_type",
+    "asset_key", "timestamp", "last_poll_time", "runtime_mode", "view",
 }
+
+# Fallback when a packet identifies an asset only by its short key.
+_SHORT_TO_ID = {"bms": "bms_1", "pcs": "pcs_1", "chiller": "chiller_1"}
 
 
 def _parse_ts(value: Any) -> datetime:
@@ -144,33 +148,57 @@ class Ingestor:
             await self._handle_packet(packet)
 
     async def _handle_packet(self, packet: dict) -> None:
-        """Normalise the many packet shapes into (asset_id, asset_obj) pairs.
+        """Normalise the many packet shapes into {asset_id: asset_obj}.
 
-        Real i.MX93 SSE event:
-            {"asset_id":"chiller_1", "data":{...}, "status":"ok",
-             "assets":{"chiller":{"asset_id":"chiller_1","data":{...}}}}
-          -> the nested `assets` dict is keyed by the SHORT name ("chiller"),
-             but each object carries the real "asset_id" ("chiller_1"). We use
-             the inner asset_id, never the dict key (that was the FK crash).
-        Also accepts the mock's {"assets":{asset_id:{"telemetry":{...}}}} and a
-        bare single-asset packet.
+        Handles every shape the gateway has used:
+          * Per-asset SSE event (v1/v2):
+              {"asset_id":"chiller_1","data":{...},
+               "assets":{"chiller":{"asset_id":"chiller_1","data":{...}}}}
+          * Combined packet (v2 /telemetry/latest): the real per-asset data is
+            under TOP-LEVEL sibling keys (`pcs`/`bms`/`chiller` or `data` for the
+            primary), while `assets` holds EMPTY {} placeholders.
+          * Mock: {"assets":{"bms_1":{"telemetry":{...}}}}.
+
+        Rules: never trust the short dict key as the id (FK crash) -- use the
+        inner `asset_id`, else map the short key, else skip. Empty objects are
+        ignored. Results are deduped by asset_id, preferring objects with data.
         """
-        pairs: list[tuple[str, dict]] = []
-        assets = packet.get("assets")
-        if isinstance(assets, dict) and assets:
-            for key, obj in assets.items():
-                if isinstance(obj, dict):
-                    pairs.append((obj.get("asset_id") or key, obj))
-        elif isinstance(assets, list) and assets:
-            for obj in assets:
-                if isinstance(obj, dict) and obj.get("asset_id"):
-                    pairs.append((obj["asset_id"], obj))
-        elif packet.get("asset_id"):
-            pairs.append((packet["asset_id"], packet))
+        collected: dict[str, dict] = {}
 
-        for asset_id, obj in pairs:
-            if asset_id:
-                await self._handle_asset(asset_id, obj)
+        def consider(asset_id: Optional[str], obj: Any) -> None:
+            if not isinstance(obj, dict):
+                return
+            aid = (obj.get("asset_id") or asset_id
+                   or _SHORT_TO_ID.get(asset_id or ""))
+            if not aid:
+                return
+            has_data = bool(obj.get("data") or obj.get("telemetry")) or any(
+                k not in _SKIP_KEYS for k in obj
+            )
+            if aid not in collected or (has_data and not (
+                collected[aid].get("data") or collected[aid].get("telemetry"))):
+                collected[aid] = obj
+
+        # 1) Top-level sibling asset objects (v2 combined packet).
+        for short in ("pcs", "bms", "chiller"):
+            consider(short, packet.get(short))
+        # 2) Primary asset carried at the top level via `data`.
+        if packet.get("asset_id") and isinstance(packet.get("data"), dict):
+            consider(packet["asset_id"], packet)
+        # 3) Nested `assets` dict or list.
+        assets = packet.get("assets")
+        if isinstance(assets, dict):
+            for key, obj in assets.items():
+                consider(key, obj)
+        elif isinstance(assets, list):
+            for obj in assets:
+                consider(None, obj)
+        # 4) Bare single-asset packet (no `assets`, no `data`).
+        if not collected and packet.get("asset_id"):
+            consider(packet["asset_id"], packet)
+
+        for asset_id, obj in collected.items():
+            await self._handle_asset(asset_id, obj)
 
     async def _handle_asset(self, asset_id: str, data: dict) -> None:
         asset_type = data.get("asset_type")

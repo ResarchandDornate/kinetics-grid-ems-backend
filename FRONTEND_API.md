@@ -3,16 +3,26 @@
 API reference for the EMS web dashboard. All examples below are **real responses**
 captured from the running backend.
 
-- **Base URL (local dev):** `http://localhost:8080`
-- **Base URL (deployed):** `http://<server-ip>:8080` (your team will provide)
+- **Base URL (deployed — use this):** `https://kinetic.unityess.cloud`
+- **Base URL (local dev):** `http://localhost:8080` (only on the same PC as the backend)
 - **Content type:** `application/json`
 - **Auth:** JWT bearer token. Read endpoints are open; **command (control)
   endpoints require a logged-in `operator`**. See [Authentication](#authentication).
 - **CORS:** open (`*`) in dev.
 
+> Set one base URL in your app and prefix every path with it, e.g.
+> `https://kinetic.unityess.cloud/api/telemetry/latest`.
+
 > The frontend talks **only to this backend**, never to the EMS gateway directly.
 > The backend caches latest values and history, so the dashboard stays fast and
 > keeps working even if the gateway blips.
+
+> **Telemetry fields are discovered dynamically — never hard-code them.** The
+> gateway (v2) exposes more fields than any example below shows (PCS ~41, BMS
+> ~31, Chiller ~20). Always build asset detail pages from
+> `GET /api/assets/{id}/telemetry/keys` (gives every field's label, unit, and
+> group), then read live values from `/telemetry/latest` + the SSE stream. New
+> gateway fields then appear automatically with no frontend changes.
 
 ## Conventions
 
@@ -257,7 +267,7 @@ from the gateway log server — usually a backend/cron concern, not the UI.)
 (default ~1s), keyed by asset_id. Use the browser's `EventSource`:
 
 ```js
-const es = new EventSource("http://localhost:8080/api/stream/telemetry");
+const es = new EventSource("https://kinetic.unityess.cloud/api/stream/telemetry");
 
 es.onmessage = (e) => {
   const { assets } = JSON.parse(e.data);
@@ -403,4 +413,5 @@ export interface StreamPayload {
 | GET | `/api/assets/{id}/commands/audit` | Command history |
 | GET | `/api/assets/{id}/events` | Events / alarms |
 
-Interactive docs (try every endpoint live): **`http://localhost:8080/docs`**
+Interactive docs (try every endpoint live): **`https://kinetic.unityess.cloud/docs`**
+(or `http://localhost:8080/docs` when running the backend locally).

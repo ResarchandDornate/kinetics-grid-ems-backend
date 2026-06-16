@@ -65,6 +65,11 @@ async def sync_assets(gateway: GatewayClient) -> list[str]:
         if not asset_id:
             continue
         asset_ids.append(asset_id)
+        # v2 gateway nests connection details; v1 had them flat. Support both.
+        conn = a.get("connection") or {}
+        host = conn.get("host", a.get("host"))
+        port = conn.get("port", a.get("port"))
+        unit_id = conn.get("unit_id", a.get("unit_id"))
         await pool().execute(
             """
             INSERT INTO ems_assets
@@ -76,14 +81,17 @@ async def sync_assets(gateway: GatewayClient) -> list[str]:
                 asset_type = EXCLUDED.asset_type,
                 protocol = EXCLUDED.protocol,
                 vendor = EXCLUDED.vendor,
+                host = EXCLUDED.host,
+                port = EXCLUDED.port,
+                unit_id = EXCLUDED.unit_id,
                 enabled = EXCLUDED.enabled,
                 running = EXCLUDED.running,
                 online = EXCLUDED.online,
                 updated_at = now()
             """,
             asset_id, settings.gateway_id, a.get("asset_key"), a.get("asset_type"),
-            a.get("protocol"), a.get("vendor"), a.get("host"), a.get("port"),
-            a.get("unit_id"), a.get("enabled"), a.get("running"), a.get("online"),
+            a.get("protocol"), a.get("vendor"), host, port,
+            unit_id, a.get("enabled"), a.get("running"), a.get("online"),
         )
     log.info("Synced %d assets: %s", len(asset_ids), ", ".join(asset_ids))
     return asset_ids

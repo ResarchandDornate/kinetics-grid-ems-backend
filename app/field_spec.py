@@ -55,6 +55,9 @@ BMS_FIELDS = [
     ("alarm_count",                       "integer",  "count","alarms_status",         True,  True),
     ("contactor_active_flags",            "array",    "",     "alarms_status",         True,  False),
     ("last_error",                        "string",   "",     "alarms_status",         False, False),
+    # --- v2 gateway additions ---
+    ("max_temp_diff_c",                   "number",   "C",    "temperature",           True,  False),
+    ("heartbeat",                         "integer",  "",     "alarms_status",         False, False),
 ]
 
 PCS_FIELDS = [
@@ -88,6 +91,18 @@ PCS_FIELDS = [
     ("igbt_temperature_c",                "number",   "C",    "thermal",       True,  False),
     ("ambient_temperature_c",             "number",   "C",    "thermal",       True,  False),
     ("inductance_temperature_c",          "number",   "C",    "thermal",       True,  False),
+    # --- v2 gateway additions ---
+    ("dc_voltage_v",                      "number",   "V",    "dc_side",       True,  False),
+    ("phase_a_active_power_kw",           "number",   "kW",   "power_energy",  True,  False),
+    ("phase_b_active_power_kw",           "number",   "kW",   "power_energy",  True,  False),
+    ("phase_c_active_power_kw",           "number",   "kW",   "power_energy",  True,  False),
+    ("phase_a_reactive_power_kvar",       "number",   "kVAr", "power_energy",  True,  False),
+    ("phase_b_reactive_power_kvar",       "number",   "kVAr", "power_energy",  True,  False),
+    ("phase_c_reactive_power_kvar",       "number",   "kVAr", "power_energy",  True,  False),
+    ("detailed_fault_status",             "string",   "",     "status_faults", True,  True),
+    ("fault_count",                       "integer",  "count","status_faults", True,  True),
+    ("bms_operating_status",              "string",   "",     "status_faults", True,  False),
+    ("discrete_status",                   "string",   "",     "status_faults", True,  False),
 ]
 
 CHILLER_FIELDS = [
@@ -110,6 +125,8 @@ CHILLER_FIELDS = [
     ("control_mode",          "integer",  "",     "settings",     True,  False),
     ("set_temperature",       "number",   "C",    "settings",     True,  False),
     ("last_update_time",      "datetime", "",     "settings",     False, False),
+    # --- v2 gateway additions ---
+    ("system_on_off",         "string",   "",     "status",       True,  True),
 ]
 
 FIELD_SPEC = {"bms": BMS_FIELDS, "pcs": PCS_FIELDS, "chiller": CHILLER_FIELDS}
