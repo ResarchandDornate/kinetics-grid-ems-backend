@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ems_password
       POSTGRES_DB: ems
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ems_pgdata:/var/lib/postgresql/data
       # Schema is applied automatically on first boot of an empty volume.
@@ -17,13 +17,15 @@ services:
       timeout: 5s
       retries: 10
 
-  # Emulates the i.MX93 gateway (REST + SSE) so you can build before the
-  # real hardware is on the network. Swap GATEWAY_*_URL to the real IP later.
+  # Fake gateway for LOCAL DEV ONLY. It is OFF by default (profile "dev") so it
+  # never feeds mock data into a real deployment. Start it explicitly with:
+  #   docker compose --profile dev up -d
   mock-gateway:
     build: .
     command: uvicorn mock_gateway.mock:app --host 0.0.0.0 --port 9000
     ports:
       - "9000:9000"
+    profiles: ["dev"]
 
   api:
     build: .
@@ -32,6 +34,8 @@ services:
     environment:
       # Override the .env localhost values for the docker network.
       DATABASE_URL: postgresql://ems:ems_password@db:5432/ems
+      GATEWAY_TYPE: northbound
+      GATEWAY_ID: northbound_ems_gateway_1
       GATEWAY_BASE_URL: https://ems-api.unityess.cloud
       GATEWAY_LOG_BASE_URL: https://ems-api.unityess.cloud
     ports:
@@ -39,8 +43,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      mock-gateway:
-        condition: service_started
 
 volumes:
   ems_pgdata:

@@ -130,14 +130,50 @@ async def sync_field_dictionary(gateway: GatewayClient, asset_ids: list[str]) ->
         log.info("Field dictionary: %s -> %d keys", asset_id, len(keys))
 
 
+async def sync_assets_north(gateway: GatewayClient) -> list[str]:
+    """NorthBound /api/assets returns {"items": [...]} with self-describing
+    assets. Upsert them; the field dictionary is built during ingestion from
+    each signal's own metadata (NorthBound has no /telemetry/keys)."""
+    from .north_ingestion import derive_asset_type
+
+    data = await gateway.get_assets()
+    items = data.get("items") or data.get("assets") or []
+    asset_ids: list[str] = []
+    for a in items:
+        asset_id = a.get("asset_id")
+        if not asset_id:
+            continue
+        asset_ids.append(asset_id)
+        await pool().execute(
+            """
+            INSERT INTO ems_assets
+                (asset_id, gateway_id, asset_key, asset_type, online, running, enabled, updated_at)
+            VALUES ($1,$2,$3,$4,$5,TRUE,TRUE, now())
+            ON CONFLICT (asset_id) DO UPDATE SET
+                online = EXCLUDED.online, updated_at = now()
+            """,
+            asset_id, settings.gateway_id, asset_id,
+            derive_asset_type(asset_id), a.get("online"),
+        )
+    log.info("Synced %d NorthBound assets: %s", len(asset_ids), ", ".join(asset_ids))
+    return asset_ids
+
+
 async def run_bootstrap(gateway: GatewayClient) -> None:
     await register_gateway()
-    # Always seed the canonical dictionary first — this works offline and is
-    # the fallback when the gateway/asset is unreachable.
+
+    if settings.gateway_type == "northbound":
+        # NorthBound: dynamic, self-describing signals -> no static seed needed.
+        try:
+            await sync_assets_north(gateway)
+        except Exception as exc:  # noqa: BLE001 - gateway slow/unreachable at boot
+            log.warning("NorthBound asset sync incomplete (gateway slow?): %s", exc)
+        return
+
+    # Legacy EMS gateway path.
     await seed_field_dictionary()
     try:
         asset_ids = await sync_assets(gateway)
-        # Gateway keys refine grouping / add any new keys on top of the seed.
         await sync_field_dictionary(gateway, asset_ids)
     except Exception as exc:  # noqa: BLE001 - gateway may be unreachable at boot
         log.warning("Bootstrap sync incomplete (gateway unreachable?): %s", exc)

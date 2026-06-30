@@ -18,6 +18,7 @@ from .config import settings
 from .db import connect, disconnect, pool
 from .gateway_client import GatewayClient
 from .ingestion import Ingestor
+from .north_ingestion import NorthIngestor
 from .routers import assets, auth, commands, events, telemetry
 
 logging.basicConfig(level=settings.log_level)
@@ -32,9 +33,12 @@ async def lifespan(app: FastAPI):
 
     ingest_task = None
     if settings.ingest_enabled:
-        app.state.ingestor = Ingestor(app.state.gateway)
+        if settings.gateway_type == "northbound":
+            app.state.ingestor = NorthIngestor(app.state.gateway)
+        else:
+            app.state.ingestor = Ingestor(app.state.gateway)
         ingest_task = asyncio.create_task(app.state.ingestor.run())
-        log.info("Ingestion worker started.")
+        log.info("Ingestion worker started (gateway_type=%s).", settings.gateway_type)
     else:
         app.state.ingestor = None
         log.info("Ingestion disabled (INGEST_ENABLED=false).")

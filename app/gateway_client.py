@@ -23,6 +23,25 @@ class GatewayClient:
         r.raise_for_status()
         return r.json()
 
+    # ---- NorthBound gateway (read-only REST) ----
+    async def get_key_signals(self) -> dict:
+        """All-assets compact telemetry. The NorthBound gateway is slow, so this
+        call uses a generous timeout."""
+        r = await self._client.get(
+            f"{settings.gateway_base_url}/api/telemetry/key-signals",
+            timeout=settings.north_request_timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def get_alarms(self) -> dict:
+        r = await self._client.get(
+            f"{settings.gateway_base_url}/api/alarms",
+            timeout=settings.north_request_timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
     async def get_latest(self) -> dict:
         r = await self._client.get(f"{settings.gateway_base_url}/api/telemetry/latest")
         r.raise_for_status()

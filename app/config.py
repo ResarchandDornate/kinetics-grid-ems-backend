@@ -8,11 +8,19 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql://ems:ems_password@localhost:5432/ems"
 
-    # Gateway (i.MX93). Point these at the mock for local dev, or the real
-    # Wi-Fi IP (http://<IMX93_IP>:8000 / :7000) in the field.
-    gateway_id: str = "imx93_gateway_1"
-    gateway_base_url: str = "http://localhost:9000"
-    gateway_log_base_url: str = "http://localhost:9000"
+    # Gateway connection.
+    # gateway_type selects the ingestion protocol:
+    #   "northbound" -> REST poll of /api/telemetry/key-signals (current gateway)
+    #   "ems"        -> legacy SSE /api/stream/telemetry (old EMS gateway)
+    gateway_type: str = "northbound"
+    gateway_id: str = "northbound_ems_gateway_1"
+    gateway_base_url: str = "https://ems-api.unityess.cloud"
+    gateway_log_base_url: str = "https://ems-api.unityess.cloud"
+
+    # NorthBound REST polling cadence (the gateway is slow; keep modest).
+    north_poll_seconds: float = 5.0
+    north_alarms_poll_seconds: float = 15.0
+    north_request_timeout: float = 45.0
 
     # Ingestion
     ingest_enabled: bool = True
