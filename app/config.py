@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     gateway_id: str = "northbound_ems_gateway_1"
     gateway_base_url: str = "https://ems-api.unityess.cloud"
     gateway_log_base_url: str = "https://ems-api.unityess.cloud"
+    # Bearer token for the gateway API (the NorthBound gateway now requires it).
+    # Get this from the gateway team and set GATEWAY_API_TOKEN in the environment.
+    gateway_api_token: str = ""
 
     # NorthBound REST polling cadence (the gateway is slow; keep modest).
     north_poll_seconds: float = 5.0

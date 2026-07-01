@@ -10,9 +10,16 @@ import httpx
 from .config import settings
 
 
+def _auth_headers() -> dict:
+    """Bearer auth for the gateway, if a token is configured."""
+    if settings.gateway_api_token:
+        return {"Authorization": f"Bearer {settings.gateway_api_token}"}
+    return {}
+
+
 class GatewayClient:
     def __init__(self) -> None:
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=10.0, headers=_auth_headers())
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -81,7 +88,7 @@ class GatewayClient:
     async def stream_telemetry(self) -> AsyncIterator[str]:
         """Yield the `data:` payload of each SSE event as a raw string."""
         url = f"{settings.gateway_base_url}/api/stream/telemetry"
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=None, headers=_auth_headers()) as client:
             async with client.stream("GET", url) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
