@@ -5,14 +5,15 @@ API reference for the **North gateway dashboard** (a separate frontend that show
 **live running gateway**, which differs from the v0.1 draft doc in a few places
 (noted inline) — trust this guide.
 
-- **Base URL:** `https://ems-api.unityess.cloud`
+- **Telemetry base URL:** `https://ems-api.unityess.cloud` (read-only, direct)
 - **Live updates:** `wss://ems-api.unityess.cloud/ws/telemetry` (WebSocket)
-- **Mode:** **read-only.** No login, no commands, no setpoints — display only.
+- **Command base URL:** `https://kinetic.unityess.cloud` (your backend — for writes)
 - **Content type:** `application/json`
 
-> This dashboard talks **directly to the gateway** (it's already a clean,
-> read-only, frontend-ready API). It does **not** go through the EMS backend.
-> So there's **no auth** here — every endpoint is a plain `GET`.
+> **Reads** (telemetry/alarms/history) come **directly from the gateway** — no auth,
+> plain `GET`. **Writes** (EMS commands) go **through your backend** with an
+> `operator` login, because they need the gateway's secret internal token. See
+> [EMS Command Panel](#ems-command-panel-write-control-operator).
 
 ## ⚠️ Read this first — gateway behavior
 
@@ -272,20 +273,113 @@ export interface Health {
 
 ---
 
+## EMS Command Panel (write control)  🔒 operator
+
+Everything above is **read-only** telemetry, straight from the gateway. **Commands
+are different** — writing to the plant needs the gateway's secret internal token,
+so they go **through your backend**, never the gateway directly:
+
+```
+Frontend ──(backend operator JWT)──► https://kinetic.unityess.cloud ──(gateway internal token)──► gateway
+```
+
+- **Command base URL: `https://kinetic.unityess.cloud`** (your backend) — NOT `ems-api.unityess.cloud`.
+- **Requires a backend `operator` login:** `POST https://kinetic.unityess.cloud/api/auth/login`,
+  then send `Authorization: Bearer <token>`. Viewers get `403`.
+- Only the **`ems_system`** asset is writable — **93 registers** (modes, start/stop,
+  setpoints, SOC limits, emergency stop, …).
+- Every write is **audited** by the backend. Always **confirm in the UI** and
+  **debounce** — these affect real hardware.
+
+### List writable registers (build the panel)
+`GET /api/commands/ems/registers`  ·  operator token
+```json
+{
+  "asset_id": "ems_system", "commands_enabled": true, "write_access": true, "count": 93,
+  "items": [
+    {
+      "id": "p0003", "address": 4, "signal_name": "remote_mode", "point_name": "Remote Mode",
+      "unit": "", "category": "status", "description": "0, Local; 1, Remote", "rw": 1, "factor": 1.0,
+      "latest": { "value": 1.0, "quality": "good", "timestamp_utc": "..." }
+    }
+  ]
+}
+```
+Render each item as a control: `point_name` = label, `signal_name` = target,
+`description` = value options (e.g. `0=Local, 1=Remote`), `latest.value` = current state.
+
+### Write one register
+`POST /api/commands/ems/write`  ·  operator token
+```json
+// request — target by signal_name (preferred), point_id, or address
+{ "signal_name": "remote_mode", "value": 1, "readback": true, "note": "reason" }
+```
+```json
+// response
+{ "audit_id": 5, "status": "ok", "error_code": null,
+  "gateway_response": { "ok": true, "signal_name": "remote_mode",
+                        "requested_value": 1, "readback_value": 1.0 } }
+```
+Success → `status: "ok"` and `gateway_response.readback_value` confirms the new value.
+Failure → `status: "error"` + `error_code` (`403` role, `404` bad register, `502` Modbus
+write failed, `401`/`530` gateway auth/down); show `message` to the user.
+
+### Batch write (commissioning only)
+`POST /api/commands/ems/batch`  ·  operator token
+```json
+{ "writes": [ { "signal_name": "remote_mode", "value": 1 },
+              { "signal_name": "manual_auto_mode", "value": 1 } ],
+  "continue_on_error": false }
+```
+Prefer single-write for operator actions (clean per-action audit).
+
+> **Register examples** (of 93): `remote_mode` (0 Local/1 Remote), `manual_auto_mode`
+> (0 Manual/1 Auto), `start_command` (0 Stop/1 Start), `charge_soc_setpoint` (%),
+> `emergency_stop` (0 Normal/1 E-Stop). Always fetch the live list — don't hard-code.
+
+### Command TypeScript types
+```ts
+export interface EmsRegister {
+  id: string; address: number; signal_name: string; point_name: string;
+  unit: string; category: string; description: string; rw: number; factor: number;
+  latest: { value: number; quality: string; timestamp_utc: string } | null;
+}
+export interface EmsRegistersResponse {
+  asset_id: "ems_system"; commands_enabled: boolean; write_access: boolean;
+  count: number; items: EmsRegister[];
+}
+export interface EmsWriteRequest {
+  signal_name?: string; point_id?: string; address?: number;   // one required
+  value: number; readback?: boolean; note?: string;
+}
+export interface EmsWriteResult {
+  audit_id: number; status: string; error_code: string | null;
+  message: string | null; gateway_response: Record<string, unknown> | null;
+}
+```
+
+---
+
 ## Quick reference
 
-| Method | Path | Use |
-|---|---|---|
-| GET | `/api/health` | Gateway status badge |
-| GET | `/api/assets` | Asset cards (`items[]`) |
-| GET | `/api/telemetry/key-signals` | **Main dashboard** (all assets) |
-| GET | `/api/assets/{id}/telemetry` | Detail page (+ `?category=`) |
-| GET | `/api/alarms` | Alarm banner |
-| GET | `/api/storage/points` | Signal history chart |
-| GET | `/api/storage/snapshots` | Recent snapshots |
-| WS | `/ws/telemetry` | Live updates |
-| — | ~~`/api/stream/telemetry`~~ | ❌ gone (404) — do not use |
-| — | ~~`/api/assets/{id}/key-signals`~~ | ❌ 404 on live gateway |
+Reads are on the gateway (`ems-api.unityess.cloud`); **commands are on your backend
+(`kinetic.unityess.cloud`)**.
+
+| Method | Path | Base | Use |
+|---|---|---|---|
+| GET | `/api/health` | gateway | Gateway status badge |
+| GET | `/api/assets` | gateway | Asset cards (`items[]`) |
+| GET | `/api/telemetry/key-signals` | gateway | **Main dashboard** (all assets) |
+| GET | `/api/assets/{id}/telemetry` | gateway | Detail page (+ `?category=`) |
+| GET | `/api/alarms` | gateway | Alarm banner |
+| GET | `/api/storage/points` | gateway | Signal history chart |
+| GET | `/api/storage/snapshots` | gateway | Recent snapshots |
+| WS | `/ws/telemetry` | gateway | Live updates |
+| GET | `/api/commands/ems/registers` | **backend** | List 93 write registers (🔒 operator) |
+| POST | `/api/commands/ems/write` | **backend** | Write one register (🔒 operator) |
+| POST | `/api/commands/ems/batch` | **backend** | Batch write (🔒 operator) |
+| — | ~~`/api/stream/telemetry`~~ | — | ❌ gone (404) — do not use |
+| — | ~~`/api/assets/{id}/key-signals`~~ | — | ❌ 404 on live gateway |
 
 Don't use in the dashboard: `/api/registers/raw`, `/api/registers/map`
 (debug-only, huge).
@@ -294,8 +388,10 @@ Don't use in the dashboard: `/api/registers/raw`, `/api/registers/map`
 
 ## Architecture note (important)
 
-This North dashboard talks **directly to the gateway** — simplest path, and the
-gateway is read-only so there's nothing to protect. Two consequences to know:
+This North dashboard reads **directly from the gateway** (simplest path for
+telemetry) but sends **commands through your backend** (`kinetic.unityess.cloud`)
+so the gateway's internal write-token stays secret and every command is audited.
+Two more things to know:
 
 1. **This is a different gateway than the original EMS one.** The URL
    `https://ems-api.unityess.cloud` now runs the **NorthBound** gateway (9 assets,
