@@ -17,16 +17,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # Fake gateway for LOCAL DEV ONLY. It is OFF by default (profile "dev") so it
-  # never feeds mock data into a real deployment. Start it explicitly with:
-  #   docker compose --profile dev up -d
-  mock-gateway:
-    build: .
-    command: uvicorn mock_gateway.mock:app --host 0.0.0.0 --port 9000
-    ports:
-      - "9000:9000"
-    profiles: ["dev"]
-
   api:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080

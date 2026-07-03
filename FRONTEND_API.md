@@ -111,7 +111,7 @@ const res = await fetch(`${BASE}/api/assets/chiller_1/commands`, {
 ### Health
 `GET /api/health`
 ```json
-{ "status": "ok", "db": true, "ingestion": true, "gateway_base_url": "http://mock-gateway:9000" }
+{ "status": "ok", "db": true, "ingestion": true, "gateway_base_url": "https://ems-api.unityess.cloud" }
 ```
 
 ### List assets (cards)
