@@ -247,6 +247,89 @@ with role `operator`+.** Returns 403 `FORBIDDEN` for viewers, 401 if no/invalid 
 `GET /api/assets/{asset_id}/commands/audit?limit=50` → list of past commands with
 `request_ts`, `response_ts`, `command`, `status`, `message`, `requested_by`.
 
+---
+
+## EMS Command Panel (NorthBound write control)  🔒 operator
+
+The NorthBound gateway exposes **93 writable EMS command registers** (`ems_system`
+asset only). These let an operator control the plant — modes, start/stop,
+setpoints, SOC limits, emergency stop, etc. Your backend proxies them so the
+frontend never needs the gateway's internal token.
+
+- **All three endpoints require an `operator` (or `admin`) token** — viewers get `403`.
+- Available only on the NorthBound gateway (else `404`).
+- Every write is recorded in the command audit trail (who/what/when + gateway response).
+- Always **confirm in the UI** before sending, and **debounce** — these affect real hardware.
+
+### List writable registers (build the panel)
+`GET /api/commands/ems/registers`  ·  header `Authorization: Bearer <token>`
+```json
+{
+  "asset_id": "ems_system",
+  "commands_enabled": true,
+  "write_access": true,
+  "count": 93,
+  "items": [
+    {
+      "id": "p0003", "address": 4, "register_qty": 2,
+      "point_name": "Remote Mode", "signal_name": "remote_mode",
+      "point_type": "float32", "unit": "", "category": "status",
+      "description": "0, Local; 1, Remote", "rw": 1, "factor": 1.0,
+      "latest": { "value": 1.0, "quality": "good", "timestamp_utc": "..." }
+    }
+  ]
+}
+```
+Render each `item` as a control: use `point_name` as the label, `signal_name` as
+the target, `description` to build the value dropdown (e.g. `0=Local, 1=Remote`),
+and `latest.value` to show the current state.
+
+### Write one register
+`POST /api/commands/ems/write`  ·  operator token
+```json
+// request — identify the register by signal_name (preferred), point_id, or address
+{ "signal_name": "remote_mode", "value": 1, "readback": true, "note": "reason" }
+```
+```json
+// response
+{
+  "audit_id": 5, "status": "ok", "error_code": null, "message": null,
+  "gateway_response": {
+    "ok": true, "asset_id": "ems_system", "signal_name": "remote_mode",
+    "requested_value": 1, "readback_value": 1.0, "description": "0, Local; 1, Remote"
+  }
+}
+```
+- On success: `status: "ok"` and `gateway_response.readback_value` confirms the new value.
+- On failure: `status: "error"` with `error_code` (e.g. `403` role, `404` bad register,
+  `502` Modbus write failed, `401`/`530` gateway auth/down). Show `message` to the user.
+
+### Batch write (commissioning workflows)
+`POST /api/commands/ems/batch`  ·  operator token
+```json
+// request (max 50 writes)
+{
+  "writes": [
+    { "signal_name": "remote_mode", "value": 1, "readback": true },
+    { "signal_name": "manual_auto_mode", "value": 1, "readback": true }
+  ],
+  "continue_on_error": false
+}
+```
+```json
+// response
+{ "ok": true, "success_count": 2, "error_count": 0,
+  "results": [ { "audit_id": 6, "status": "ok", "...": "..." } ] }
+```
+Prefer single-write for operator actions (clean per-action audit); use batch only
+for predefined, pre-validated commissioning sequences.
+
+> **Common register examples** (from the gateway's 93): `remote_mode` (0 Local /
+> 1 Remote), `manual_auto_mode` (0 Manual / 1 Auto), `start_command` (0 Stop /
+> 1 Start), `charge_value_setpoint` (kW), `charge_soc_setpoint` (%),
+> `emergency_stop` (0 Normal / 1 E-Stop). Always fetch the live list from
+> `/api/commands/ems/registers` — don't hard-code.
+
 ### Events / alarms
 `GET /api/assets/{asset_id}/events?limit=100`
 ```json
@@ -380,6 +463,41 @@ export interface CommandResult {
   gateway_response: Record<string, unknown> | null;
 }
 
+// --- EMS command registers (NorthBound write control) ---
+export interface EmsRegister {
+  id: string;
+  address: number;
+  register_qty: number;
+  point_name: string;
+  signal_name: string;
+  point_type: string;
+  unit: string;
+  category: string;
+  description: string;
+  rw: number;
+  factor: number;
+  latest: { value: number; quality: string; timestamp_utc: string } | null;
+}
+export interface EmsRegistersResponse {
+  asset_id: "ems_system";
+  commands_enabled: boolean;
+  write_access: boolean;
+  count: number;
+  items: EmsRegister[];
+}
+export interface EmsWriteRequest {
+  signal_name?: string;   // one of signal_name / point_id / address required
+  point_id?: string;
+  address?: number;
+  value: number;
+  readback?: boolean;     // default true
+  note?: string;
+}
+export interface EmsBatchRequest {
+  writes: EmsWriteRequest[];      // 1..50
+  continue_on_error?: boolean;
+}
+
 export interface StreamPayload {
   assets: Record<string, {
     online: boolean | null;
@@ -411,6 +529,9 @@ export interface StreamPayload {
 | GET | `/api/assets/{id}/commands` | Available commands |
 | POST | `/api/assets/{id}/commands` | Send a command (🔒 operator) |
 | GET | `/api/assets/{id}/commands/audit` | Command history |
+| GET | `/api/commands/ems/registers` | List 93 EMS write registers (🔒 operator) |
+| POST | `/api/commands/ems/write` | Write one EMS register (🔒 operator) |
+| POST | `/api/commands/ems/batch` | Batch write EMS registers (🔒 operator) |
 | GET | `/api/assets/{id}/events` | Events / alarms |
 
 Interactive docs (try every endpoint live): **`https://kinetic.unityess.cloud/docs`**
