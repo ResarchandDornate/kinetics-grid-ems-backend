@@ -16,9 +16,14 @@ class Settings(BaseSettings):
     gateway_id: str = "northbound_ems_gateway_1"
     gateway_base_url: str = "https://ems-api.unityess.cloud"
     gateway_log_base_url: str = "https://ems-api.unityess.cloud"
-    # Bearer token for the gateway API (the NorthBound gateway now requires it).
-    # Get this from the gateway team and set GATEWAY_API_TOKEN in the environment.
+    # Auth for the gateway API (the NorthBound gateway now requires it).
+    # Option A: paste a static token in GATEWAY_API_TOKEN.
+    # Option B (preferred, self-refreshing): set GATEWAY_USERNAME + GATEWAY_PASSWORD;
+    #   the backend logs into the gateway's /api/auth/login and caches the token.
+    #   For EMS command writes the gateway account must have the internal_admin role.
     gateway_api_token: str = ""
+    gateway_username: str = ""
+    gateway_password: str = ""
 
     # NorthBound REST polling cadence (the gateway is slow; keep modest).
     north_poll_seconds: float = 5.0

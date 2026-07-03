@@ -19,7 +19,7 @@ from .db import connect, disconnect, pool
 from .gateway_client import GatewayClient
 from .ingestion import Ingestor
 from .north_ingestion import NorthIngestor
-from .routers import assets, auth, commands, events, telemetry
+from .routers import assets, auth, commands, ems_commands, events, telemetry
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("app")
@@ -68,6 +68,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(assets.router)
+app.include_router(ems_commands.router)
 app.include_router(telemetry.router)
 app.include_router(commands.router)
 app.include_router(events.router)

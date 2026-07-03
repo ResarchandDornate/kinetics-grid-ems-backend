@@ -38,6 +38,22 @@ class CommandRequest(BaseModel):
     requested_by: Optional[str] = None
 
 
+# ---- NorthBound EMS command-register writes (ems_system only) ----
+class EmsWriteRequest(BaseModel):
+    # Identify the target register by one of these (signal_name preferred).
+    signal_name: Optional[str] = None
+    point_id: Optional[str] = None
+    address: Optional[int] = None
+    value: float
+    readback: bool = True
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class EmsBatchRequest(BaseModel):
+    writes: list[EmsWriteRequest] = Field(min_length=1, max_length=50)
+    continue_on_error: bool = False
+
+
 class CommandResult(BaseModel):
     audit_id: int
     status: str
